@@ -12,13 +12,16 @@
 #include "parameters.h"
 #include "utility/visualization.h"
 
+#include "gui.hpp"
 
+std::shared_ptr<Gui> gui_ptr;
 Estimator estimator;
 
 std::condition_variable con;
 double current_time = -1;
 queue<sensor_msgs::ImuConstPtr> imu_buf;
 queue<sensor_msgs::PointCloudConstPtr> feature_buf;
+queue<sensor_msgs::ImagePtr> img_buf;
 queue<sensor_msgs::PointCloudConstPtr> relo_buf;
 int sum_of_wait = 0;
 
@@ -38,6 +41,59 @@ Eigen::Vector3d gyr_0;
 bool init_feature = 0;
 bool init_imu = 1;
 double last_imu_t = 0;
+
+bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs, std::vector<Eigen::Vector3d> &_Points )
+{
+    if(estimator.solver_flag == Estimator::INITIAL) return false;
+
+    lock_guard<mutex> lock(gui_ptr->gui_mutex);
+
+    {
+        for(int i=0;i<WINDOW_SIZE+1;i++)
+        {
+            Eigen::Vector3d twi = estimator.Ps[i];
+            Eigen::Matrix3d Rwi = estimator.Rs[i];
+
+            Eigen::Vector3d tic = estimator.tic[0];
+            Eigen::Matrix3d Ric = estimator.ric[0];
+
+            Eigen::Matrix3d Rwc = Rwi * Ric;
+            Eigen::Vector3d twc = Rwi * tic + twi;
+
+            Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
+            Twc.block(0, 0, 3, 3) = Rwi * Ric;
+            Twc.block(0, 3, 3, 1) = Rwi * tic + twi;
+
+            _Twcs.push_back(Twc);
+        }
+
+//        Eigen::Vector3d twi = estimator.Ps[WINDOW_SIZE];
+//        Eigen::Matrix3d Rwi = estimator.Rs[WINDOW_SIZE];
+//
+//        Eigen::Vector3d tic = estimator.tic[0];
+//        Eigen::Matrix3d Ric = estimator.ric[0];
+    }
+
+
+
+    for (auto &it_per_id : estimator.f_manager.feature)
+    {
+        int used_num;
+        used_num = it_per_id.feature_per_frame.size();
+        if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
+            continue;
+        if (it_per_id.start_frame > WINDOW_SIZE * 3.0 / 4.0 || it_per_id.solve_flag != 1)
+            continue;
+        int imu_i = it_per_id.start_frame;
+        Vector3d pts_i = it_per_id.feature_per_frame[0].point * it_per_id.estimated_depth;
+        Vector3d w_pts_i = estimator.Rs[imu_i] * (estimator.ric[0] * pts_i + estimator.tic[0]) + estimator.Ps[imu_i];
+
+        _Points.push_back(w_pts_i);
+    }
+
+    return true;
+}
+
 
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
@@ -161,6 +217,13 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
     }
 }
 
+void img_callback(const sensor_msgs::ImagePtr &img)
+{
+    m_buf.lock();
+    img_buf.push(img);
+    m_buf.unlock();
+    con.notify_one();
+}
 
 void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
 {
@@ -227,7 +290,7 @@ void process()
                 double t = imu_msg->header.stamp.toSec();
                 double img_t = img_msg->header.stamp.toSec() + estimator.td;
                 if (t <= img_t)
-                { 
+                {
                     if (current_time < 0)
                         current_time = t;
                     double dt = t - current_time;
@@ -318,6 +381,14 @@ void process()
             std_msgs::Header header = img_msg->header;
             header.frame_id = "world";
 
+//            updategui();
+            cv::Mat _img;
+            _img = cv::Mat::zeros(480, 752, CV_8UC3);
+            std::vector< Eigen::Matrix4d > _Twcs;
+            std::vector< Eigen::Vector3d > _Points;
+            if(GetcurguiData(_Twcs, _Points))
+                gui_ptr->update_data( _img, _Twcs, _Points );
+
             pubOdometry(estimator, header);
             pubKeyPoses(estimator, header);
             pubCameraPose(estimator, header);
@@ -356,8 +427,10 @@ int main(int argc, char **argv)
     ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
     ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
     ros::Subscriber sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);
+    ros::Subscriber sub_img = n.subscribe("/feature_tracker/Img_Un", 2000, img_callback);
 
     std::thread measurement_process{process};
+    gui_ptr = std::make_shared<Gui>();
     ros::spin();
 
     return 0;
