@@ -217,6 +217,7 @@ void FeatureTracker::readIntrinsicParameter(const string &calib_file)
 {
     ROS_INFO("reading paramerter of camera %s", calib_file.c_str());
     m_camera = CameraFactory::instance()->generateCameraFromYamlFile(calib_file);
+    K_ = m_camera->initUndistortRectifyMap(undist_map1_,undist_map2_);
 }
 
 void FeatureTracker::showUndistortion(const string &name)

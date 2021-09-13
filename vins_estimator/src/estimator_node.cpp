@@ -151,14 +151,16 @@ void update()
 
 }
 
-std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
+std::vector<
+        std::tuple< std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr, sensor_msgs::ImagePtr >
+        >
 getMeasurements()
 {
-    std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
+    std::vector<std::tuple< std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr, sensor_msgs::ImagePtr >> measurements;
 
     while (true)
     {
-        if (imu_buf.empty() || feature_buf.empty())
+        if (imu_buf.empty() || feature_buf.empty() || img_buf.empty())
             return measurements;
 
         if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
@@ -186,7 +188,13 @@ getMeasurements()
         IMUs.emplace_back(imu_buf.front());
         if (IMUs.empty())
             ROS_WARN("no imu between two image");
-        measurements.emplace_back(IMUs, img_msg);
+
+        sensor_msgs::ImagePtr img;
+
+        img = img_buf.front();
+        img_buf.pop();
+
+        measurements.emplace_back(IMUs, img_msg, img);
     }
     return measurements;
 }
@@ -273,7 +281,10 @@ void process()
 {
     while (true)
     {
-        std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
+        std::vector<
+                std::tuple< std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr, sensor_msgs::ImagePtr >
+//                std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>
+                > measurements;
         std::unique_lock<std::mutex> lk(m_buf);
         con.wait(lk, [&]
                  {
@@ -283,9 +294,9 @@ void process()
         m_estimator.lock();
         for (auto &measurement : measurements)
         {
-            auto img_msg = measurement.second;
+            auto img_msg = std::get<1>(measurement);// measurement.second;
             double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
-            for (auto &imu_msg : measurement.first)
+            for (auto &imu_msg : std::get<0>(measurement))
             {
                 double t = imu_msg->header.stamp.toSec();
                 double img_t = img_msg->header.stamp.toSec() + estimator.td;
@@ -382,8 +393,11 @@ void process()
             header.frame_id = "world";
 
 //            updategui();
-            cv::Mat _img;
-            _img = cv::Mat::zeros(480, 752, CV_8UC3);
+            cv_bridge::CvImageConstPtr ptr = cv_bridge::toCvCopy(std::get<2>(measurement), sensor_msgs::image_encodings::MONO8);
+
+            cv::Mat _img = ptr->image;
+            cv::cvtColor(_img, _img, CV_GRAY2RGB);
+//            _img = cv::Mat::zeros(480, 752, CV_8UC3);
             std::vector< Eigen::Matrix4d > _Twcs;
             std::vector< Eigen::Vector3d > _Points;
             if(GetcurguiData(_Twcs, _Points))

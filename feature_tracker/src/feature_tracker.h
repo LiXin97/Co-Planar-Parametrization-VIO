@@ -62,4 +62,6 @@ class FeatureTracker
     double prev_time;
 
     static int n_id;
+
+    cv::Mat undist_map1_, undist_map2_ , K_;
 };
