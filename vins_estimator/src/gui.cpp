@@ -2,6 +2,8 @@
 // Created by xin on 7/9/21.
 //
 
+
+#include <ros/ros.h>
 #include "gui.hpp"
 
 Gui::Gui()
@@ -9,6 +11,7 @@ Gui::Gui()
     auto proc_func = [&]{run();};
     view_thread.reset( new std::thread(proc_func) );
     show_id = 0;
+    pause_status = false;
 }
 
 void Gui::run()
@@ -43,6 +46,7 @@ void Gui::run()
     pangolin::Var<bool> menuShowimg("menu.Show img",true,true);
     pangolin::Var<bool> menuShowCamera("menu.Show Camera",true,true);
     pangolin::Var<bool> menuShowPoint("menu.Show Point",true,true);
+    pangolin::Var<bool> menuShowMesh("menu.Show Mesh",true,true);
 
 
     // Define Camera Render Object (for view / scene browsing)
@@ -113,11 +117,13 @@ void Gui::run()
             show_id = img_dataset.size() - 1;
             menuShowframe = show_id;
             menuShowframe.Meta().range[1] = points_dataset.size() - 1;
+
+            pause_status = false;
         }
         else
         {
             menuShowframe.Meta().gui_changed = true;
-
+            pause_status = true;
 //            menuShowframe.GuiChanged()
         }
 
@@ -149,7 +155,8 @@ void Gui::run()
 
         cv::Mat _img;
         std::vector< pangolin::OpenGlMatrix > Twcs_cur;
-        std::vector< Eigen::Vector3d > _points;
+        std::unordered_map< int, Eigen::Vector3d > _points;
+        std::vector< std::vector<Eigen::Vector3d> > tris_3d;
 
         {
             auto it_data = img_dataset.find( show_id );
@@ -172,13 +179,36 @@ void Gui::run()
                 _points = it_data->second;
             }
         }
-
+        {
+            auto it_data = tris_dataset.find(show_id);
+            auto it_point_set = points_dataset.find(show_id);
+            if(it_data!=tris_dataset.end())
+            {
+                for( const auto & tri : it_data->second.tris)
+                {
+                    std::vector< Eigen::Vector3d > tri_3d;
+                    auto feature_a = tri.second.feature_a;
+                    auto feature_b = tri.second.feature_b;
+                    auto feature_c = tri.second.feature_c;
+                    auto point_a_3d = it_point_set->second.find( feature_a )->second;
+                    auto point_b_3d = it_point_set->second.find( feature_b )->second;
+                    auto point_c_3d = it_point_set->second.find( feature_c )->second;
+                    tri_3d.push_back(point_a_3d);
+                    tri_3d.push_back(point_b_3d);
+                    tri_3d.push_back(point_c_3d);
+                    tris_3d.push_back(tri_3d);
+                }
+            }
+        }
 
         if(menuShowCamera)
             draw_cams( Twcs_cur );
 
         if(menuShowPoint)
             draw_points(_points);
+
+        if(menuShowMesh)
+            draw_mesh(tris_3d);
 
         if(menuShowimg)
         {
@@ -195,9 +225,54 @@ void Gui::run()
     }
 }
 
-void Gui::draw_points(const std::vector<Eigen::Vector3d> &_points)
+Eigen::Vector4d pi_f_3p(Eigen::Vector3d x1, Eigen::Vector3d x2, Eigen::Vector3d x3)
 {
-    if(_points.empty())
+    Eigen::Vector4d pi;
+    Eigen::Vector3d n = ( x1 - x3 ).cross( x2 - x3 );
+    n.normalize();
+    if(n(2) < 0)
+    {
+        n(0) = -n(0);
+        n(1) = -n(1);
+        n(2) = -n(2);
+    }
+    pi << n, - x3.dot( n ); // d = - x3.dot( (x1-x3).cross( x2-x3 ) ) = - x3.dot( x1.cross( x2 ) )
+
+    return pi;
+}
+
+void Gui::draw_mesh(const std::vector<std::vector<Eigen::Vector3d>> &tris_3d)
+{
+    if(tris_3d.empty())
+        return;
+
+//    std::cout << tris_3d.size() << std::endl;
+    for(const auto&tri_3d:tris_3d)
+    {
+        Eigen::Vector3d norm(0,0,1);
+        Eigen::Vector4d pi = pi_f_3p(tri_3d[0], tri_3d[1], tri_3d[2]);
+        Eigen::Vector3d n = pi.head(3);
+        double o = std::acos( n.dot(norm) );
+        o = o / 3.141592653 ;
+
+//        std::cout << o << std::endl;
+
+        glBegin(GL_TRIANGLES);
+        double color = 0.25 + 0.7 * o;
+        glColor3f(color, color, color);
+
+
+        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);
+        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);
+        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);
+
+        glEnd();
+    }
+}
+
+void Gui::draw_points(const std::unordered_map< int, Eigen::Vector3d > &id_points)
+{
+    if(id_points.empty())
         return;
 
     // for ReferenceMapPoints
@@ -205,8 +280,9 @@ void Gui::draw_points(const std::vector<Eigen::Vector3d> &_points)
     glPointSize(8);
     glBegin(GL_POINTS);
     glColor3f(1.0,0.0,0.0);
-    for(auto point:_points)
+    for(const auto &id_point:id_points)
     {
+        const auto &point = id_point.second;
         glVertex3d(point[0], point[1], point[2]);
     }
     glEnd();
@@ -304,7 +380,10 @@ inline pangolin::OpenGlMatrix GetOpenGlMatrix( const Eigen::Matrix4d &_Twc )
     return M;
 }
 
-void Gui::update_data(cv::Mat &_img, std::vector<Eigen::Matrix4d> &_Twcs, std::vector<Eigen::Vector3d> &_Points)
+void Gui::update_data(cv::Mat &_img, std::vector<Eigen::Matrix4d> &_Twcs,
+                      std::unordered_map< int, Eigen::Vector3d > &id_point_datasets,
+//                      std::vector<Eigen::Vector3d> &_Points,
+                      TriManager &gui_tri, double _time)
 {
     std::unique_lock<std::mutex> lock(gui_mutex);
 
@@ -318,9 +397,15 @@ void Gui::update_data(cv::Mat &_img, std::vector<Eigen::Matrix4d> &_Twcs, std::v
     }
     Twcs_dataset.insert( {dataset_t, Twcs} );
 
-    points_dataset.insert( {dataset_t, _Points} );
+    points_dataset.insert( {dataset_t, id_point_datasets} );
 
     img_dataset.insert( {dataset_t, _img} );
+
+    time_dataset.insert( {dataset_t, _time} );
+
+    time2datasett.insert( {_time, dataset_t} );
+
+    tris_dataset.insert( {dataset_t, gui_tri} );
 
 //    show_id = Twcs_dataset.size() - 1;
 }

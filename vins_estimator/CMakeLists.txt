@@ -36,6 +36,8 @@ catkin_package()
 
 add_executable(vins_estimator
         src/gui.cpp
+        src/triangle_manager.cpp
+        src/triangle.cpp
     src/estimator_node.cpp
     src/parameters.cpp
     src/estimator.cpp

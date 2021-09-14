@@ -42,7 +42,10 @@ bool init_feature = 0;
 bool init_imu = 1;
 double last_imu_t = 0;
 
-bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs, std::vector<Eigen::Vector3d> &_Points )
+bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs,
+                    std::unordered_map< int, Eigen::Vector3d > &id_point_dataset,
+//                    std::vector<Eigen::Vector3d> &_Points,
+                    TriManager &gui_tri )
 {
     if(estimator.solver_flag == Estimator::INITIAL) return false;
 
@@ -76,6 +79,7 @@ bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs, std::vector<Eigen::Vect
 
 
 
+    std::set< int > f_id_dataset;
     for (auto &it_per_id : estimator.f_manager.feature)
     {
         int used_num;
@@ -88,8 +92,21 @@ bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs, std::vector<Eigen::Vect
         Vector3d pts_i = it_per_id.feature_per_frame[0].point * it_per_id.estimated_depth;
         Vector3d w_pts_i = estimator.Rs[imu_i] * (estimator.ric[0] * pts_i + estimator.tic[0]) + estimator.Ps[imu_i];
 
-        _Points.push_back(w_pts_i);
+//        _Points.push_back(w_pts_i);
+        id_point_dataset.insert( {it_per_id.feature_id, w_pts_i} );
+        f_id_dataset.insert( it_per_id.feature_id );
     }
+
+    for( auto &id_tri:estimator.tri_manager.tris )
+    {
+        if( f_id_dataset.count(id_tri.first.feature_a) == 1 &&
+                f_id_dataset.count(id_tri.first.feature_b) == 1 &&
+                f_id_dataset.count(id_tri.first.feature_c) == 1 )
+        {
+            gui_tri.tris.insert( id_tri );
+        }
+    }
+//    ROS_INFO("gui_tri_num = %d", gui_tri.tris.size());
 
     return true;
 }
@@ -294,6 +311,10 @@ void process()
         m_estimator.lock();
         for (auto &measurement : measurements)
         {
+
+            while( gui_ptr->pause() )
+                cv::waitKey(1000);
+
             auto img_msg = std::get<1>(measurement);// measurement.second;
             double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
             for (auto &imu_msg : std::get<0>(measurement))
@@ -399,9 +420,12 @@ void process()
             cv::cvtColor(_img, _img, CV_GRAY2RGB);
 //            _img = cv::Mat::zeros(480, 752, CV_8UC3);
             std::vector< Eigen::Matrix4d > _Twcs;
-            std::vector< Eigen::Vector3d > _Points;
-            if(GetcurguiData(_Twcs, _Points))
-                gui_ptr->update_data( _img, _Twcs, _Points );
+//            std::vector< Eigen::Vector3d > _Points;
+            std::unordered_map< int, Eigen::Vector3d > id_point_dataset;
+            TriManager gui_tri;
+            double timestamp = img_msg->header.stamp.toSec();
+            if(GetcurguiData(_Twcs, id_point_dataset, gui_tri))
+                gui_ptr->update_data( _img, _Twcs, id_point_dataset, gui_tri, timestamp );
 
             pubOdometry(estimator, header);
             pubKeyPoses(estimator, header);

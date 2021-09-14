@@ -1,4 +1,6 @@
 #include "estimator.h"
+#include "triangle.h"
+#include "triangle_manager.hpp"
 
 Estimator::Estimator(): f_manager{Rs}
 {
@@ -470,6 +472,176 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
     return false;
 }
 
+void Estimator::triangle_img( double cur_frame_time )
+{
+    if( marginalization_flag == MARGIN_SECOND_NEW )
+        return;
+
+    const ImageFrame& cur_frame = all_image_frame[cur_frame_time];
+
+    std::vector<int> cur_pid;    //存储的是当前帧图像已经三角化了的点的id，用来生成三角网格
+    std::vector<Eigen::Vector2d> cur_ppixels; //存储了当前图三角化了的点的像素坐标
+    std::vector<Eigen::Vector3d> cur_ppts; //存储了当前图三角化了的点的世界坐标
+    for(unsigned int i = 0;i<cur_frame.pids_.size(); ++i)
+    {
+        int id = cur_frame.pids_[i];
+        // 按照特征id找到对应的特征
+        auto it_feature = find_if(f_manager.feature.begin(), f_manager.feature.end(), [id](const FeaturePerId &it)
+        {
+            return it.feature_id == id;    // 在feature里找id号为feature_id的特征
+        });
+        if(it_feature != f_manager.feature.end())
+            if(it_feature->feature_id == cur_frame.pids_[i])
+            {
+                int used_num;
+                used_num = it_feature->feature_per_frame.size();
+//                    if ((used_num >= 2 && it_feature->start_frame < WINDOW_SIZE - 2))
+//                    {
+//                        if (it_feature->start_frame <= WINDOW_SIZE * 3.0 / 4.0 && it_feature->solve_flag == 1)
+//                        {
+                if(it_feature->estimated_depth >0 /*&& it_feature->estimated_depth < 4.0*/ /*&& it_feature->good_2_mesh*/)
+                {
+                    int imu_i = it_feature->start_frame, imu_j = imu_i - 1;
+                    Vector3d pts_i = it_feature->feature_per_frame[0].point * it_feature->estimated_depth;
+                    Vector3d w_pts_i = Rs[imu_i] * (ric[0] * pts_i + tic[0]) + Ps[imu_i];
+
+                    bool flag_ok = true;
+                    for (auto &it_per_frame : it_feature->feature_per_frame)
+                    {
+                        imu_j++;
+                        if (imu_i == imu_j)
+                        {
+                            continue;
+                        }
+
+                        // 计算重投影误差
+                        {
+                            Eigen::Vector3d pts_imu_j = Rs[imu_j].inverse() * (w_pts_i - Ps[imu_j]);
+                            Eigen::Vector3d pts_camera_j = ric[0].inverse() * (pts_imu_j - tic[0]);
+
+                            double dep_j = pts_camera_j.z();
+                            Eigen::Vector3d pts_j = it_per_frame.point;
+                            Eigen::Vector2d residual = (pts_camera_j / dep_j).head<2>() - pts_j.head<2>();
+                            residual = residual * FOCAL_LENGTH;
+                            if(std::abs(residual(0)) > 1. || std::abs(residual(1)) > 1.)
+
+                            {
+                                flag_ok = false;
+                                break;
+                            }
+//                                        std::cout << "-----------" << residual(0) <<"   "<< residual(1) << "---------" << std::endl;
+                        }
+                    }
+                    if(flag_ok)
+                    {
+                        cur_ppixels.push_back(cur_frame.points_on_pixel[i]);
+                        cur_pid.push_back(id);
+
+                        cur_ppts.push_back( w_pts_i );
+
+                    }
+                }
+//                        }
+//                    }
+            }
+    }
+
+    if(cur_ppixels.size() < 5) return;
+
+    struct triangulateio in{}, out{};
+    {
+
+        // input/output structure for triangulation
+        int32_t k;
+
+        // inputs
+        in.numberofpoints = cur_ppixels.size();
+        in.pointlist = (float*)malloc(in.numberofpoints*2*sizeof(float));
+        k=0;
+        for (auto &p : cur_ppixels) {
+            in.pointlist[k++] = p(0);
+            in.pointlist[k++] = p(1);
+        }
+
+//        in.numberofsegments = line_index.size()/2;
+//        in.segmentlist = new int[in.numberofsegments*2];
+//        in.segmentmarkerlist = nullptr;
+//        for(int index = 0; index<line_index.size(); ++index) {
+//            in.segmentlist[index] = line_index[index];
+//        }
+
+
+        in.numberofpointattributes = 0;
+        in.pointattributelist      = nullptr;
+        in.pointmarkerlist         = nullptr;
+        in.numberofholes           = 0;
+        in.holelist                = nullptr;
+        in.numberofregions         = 0;
+        in.regionlist              = nullptr;
+
+        // outputs
+        out.pointlist              = nullptr;
+        out.pointattributelist     = nullptr;
+        out.pointmarkerlist        = nullptr;
+        out.trianglelist           = nullptr;
+        out.triangleattributelist  = nullptr;
+        out.neighborlist           = nullptr;
+        out.segmentlist            = nullptr;
+        out.segmentmarkerlist      = nullptr;
+        out.edgelist               = nullptr;
+        out.edgemarkerlist         = nullptr;
+
+        char parameters[] = "pnezcQ";
+        triangulate(parameters, &in, &out, nullptr);
+
+        k = 0;
+        int outNUm= out.numberofpoints;
+        int in_Num = in.numberofpoints;
+
+
+        for(int index = 0; index < out.numberoftriangles; ++index)
+        {
+            Eigen::Vector2d pixel_a = cur_ppixels[ out.trianglelist[k] ];
+            int feature_a = cur_pid[ out.trianglelist[k] ];
+            k++;
+            Eigen::Vector2d pixel_b = cur_ppixels[ out.trianglelist[k] ];
+            int feature_b = cur_pid[ out.trianglelist[k] ];
+            k++;
+            Eigen::Vector2d pixel_c = cur_ppixels[ out.trianglelist[k] ];
+            int feature_c = cur_pid[ out.trianglelist[k] ];
+            k++;
+
+            if( feature_a > feature_c )
+            {
+                std::swap(feature_a, feature_c);
+                std::swap(pixel_a, pixel_c);
+            }
+            if( feature_a > feature_b )
+            {
+                std::swap(feature_a, feature_b);
+                std::swap(pixel_a, pixel_b);
+            }
+            if( feature_b > feature_c )
+            {
+                std::swap(feature_b, feature_c);
+                std::swap(pixel_b, pixel_c);
+            }
+
+            TriPerFrame triPerFrame
+                    ( cur_frame_time, pixel_a, pixel_b, pixel_c,
+                      feature_a, feature_b, feature_c);
+
+            tri_manager.insert_tri(cur_frame_time, triPerFrame);
+        }
+
+    }
+    // free memory used for triangulation
+    free(in.pointlist);
+    free(out.pointlist);
+    free(out.trianglelist);
+
+}
+
 void Estimator::solveOdometry()
 {
     if (frame_count < WINDOW_SIZE)
@@ -479,6 +651,9 @@ void Estimator::solveOdometry()
         TicToc t_tri;
         f_manager.triangulate(Ps, tic, ric);
         ROS_DEBUG("triangulation costs %f", t_tri.toc());
+
+        triangle_img( Headers[WINDOW_SIZE].stamp.toSec() );
+
         optimization();
     }
 }
