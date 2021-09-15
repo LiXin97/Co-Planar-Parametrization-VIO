@@ -6,8 +6,9 @@
 * **Co-Planar Parametrization for Stereo-SLAM and Visual-Inertial Odometry**, Xin Li, Yanyan Li, Evin Pınar Örnek, Jinlong Lin, Federico Tombari, IEEE Robotics and Automation Letters 5.4 (2020): 6972-6979.
 
 
-> * **Online Temporal Calibration for Monocular Visual-Inertial Systems**, Tong Qin, Shaojie Shen, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS, 2018), **best student paper award** [pdf](https://ieeexplore.ieee.org/abstract/document/8593603)
->* **VINS-Mono: A Robust and Versatile Monocular Visual-Inertial State Estimator**, Tong Qin, Peiliang Li, Zhenfei Yang, Shaojie Shen, IEEE Transactions on Robotics[pdf](https://ieeexplore.ieee.org/document/8421746/?arnumber=8421746&source=authoralert) 
+> **Online Temporal Calibration for Monocular Visual-Inertial Systems**, Tong Qin, Shaojie Shen, IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS, 2018), **best student paper award** [pdf](https://ieeexplore.ieee.org/abstract/document/8593603) \
+> **VINS-Mono: A Robust and Versatile Monocular Visual-Inertial State Estimator**, Tong Qin, Peiliang Li, Zhenfei Yang, Shaojie Shen, IEEE Transactions on Robotics[pdf](https://ieeexplore.ieee.org/document/8421746/?arnumber=8421746&source=authoralert) \
+> **Incremental Visual-Inertial 3D Mesh Generation with Structural Regularities**, A. Rosinol, T. Sattler, M. Pollefeys, and L. Carlone.  IEEE Int. Conf. on Robotics and Automation (ICRA), 2019.
 
 * *If you use Co-Planar-Parametrization-VIO for your academic research, please cite at least one of our related papers.*
 

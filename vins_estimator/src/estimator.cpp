@@ -603,36 +603,47 @@ void Estimator::triangle_img( double cur_frame_time )
         for(int index = 0; index < out.numberoftriangles; ++index)
         {
             Eigen::Vector2d pixel_a = cur_ppixels[ out.trianglelist[k] ];
+            Eigen::Vector3d feature_a3d = cur_ppts[ out.trianglelist[k] ];
             int feature_a = cur_pid[ out.trianglelist[k] ];
             k++;
             Eigen::Vector2d pixel_b = cur_ppixels[ out.trianglelist[k] ];
+            Eigen::Vector3d feature_b3d = cur_ppts[ out.trianglelist[k] ];
             int feature_b = cur_pid[ out.trianglelist[k] ];
             k++;
             Eigen::Vector2d pixel_c = cur_ppixels[ out.trianglelist[k] ];
+            Eigen::Vector3d feature_c3d = cur_ppts[ out.trianglelist[k] ];
             int feature_c = cur_pid[ out.trianglelist[k] ];
             k++;
 
             if( feature_a > feature_c )
             {
                 std::swap(feature_a, feature_c);
+                std::swap(feature_a3d, feature_c3d);
                 std::swap(pixel_a, pixel_c);
             }
             if( feature_a > feature_b )
             {
                 std::swap(feature_a, feature_b);
+                std::swap(feature_a3d, feature_b3d);
                 std::swap(pixel_a, pixel_b);
             }
             if( feature_b > feature_c )
             {
                 std::swap(feature_b, feature_c);
+                std::swap(feature_b3d, feature_c3d);
                 std::swap(pixel_b, pixel_c);
             }
 
             TriPerFrame triPerFrame
                     ( cur_frame_time, pixel_a, pixel_b, pixel_c,
+                      feature_a3d, feature_b3d, feature_c3d,
                       feature_a, feature_b, feature_c);
 
-            tri_manager.insert_tri(cur_frame_time, triPerFrame);
+            Eigen::Matrix4d Twc = Eigen::Matrix4d::Identity();
+            Twc.block(0, 0, 3, 3) = Rs[WINDOW_SIZE] * ric[0];
+            Twc.block(0, 3, 3, 1) = Rs[WINDOW_SIZE] * tic[0] + Ps[WINDOW_SIZE];
+
+            tri_manager.insert_tri(cur_frame_time, triPerFrame, Twc);
         }
 
     }
@@ -841,7 +852,6 @@ bool Estimator::failureDetection()
     }
     return false;
 }
-
 
 void Estimator::optimization()
 {

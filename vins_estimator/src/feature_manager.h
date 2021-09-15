@@ -62,6 +62,12 @@ class FeaturePerId
     {
     }
 
+
+    bool operator < (const FeaturePerId &other)const
+    {
+        return feature_id < other.feature_id;
+    }
+
     int endFrame();
 };
 
@@ -90,7 +96,10 @@ class FeatureManager
     void removeBack();
     void removeFront(int frame_count);
     void removeOutlier();
-    list<FeaturePerId> feature;
+
+//    std::map< int, FeaturePerId > id_feature_dataset;
+
+    std::list<FeaturePerId> feature;
     int last_track_num;
 
   private:

@@ -9,7 +9,7 @@
 Gui::Gui()
 {
     auto proc_func = [&]{run();};
-    view_thread.reset( new std::thread(proc_func) );
+//    view_thread.reset( new std::thread(proc_func) );
     show_id = 0;
     pause_status = false;
 }
