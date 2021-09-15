@@ -286,16 +286,18 @@ void Gui::run()
             draw_single_mesh(tris_3d_single, tris_pixels_single, single_img);
 
 
-        if(menuShowimg)
-        {
-            std::unique_lock<std::mutex> lock(gui_mutex);
-            imageTexture.Upload(_img.data,GL_BGR,GL_UNSIGNED_BYTE);
-            d_video.Activate();
-            glColor3f(1.0,1.0,1.0);
-            // 注意，这里由于Upload函数无法将cv::Mat格式的图片数据作为输入，因此使用 opencv 的data函数将Mat格式的数据变为uchar格式，但是opencv中Mat存储图片是自下而上的，单纯的渲染所渲染出来的图片是倒置的，因此需使用RenderToViewportFlipY（）函数进行渲染，将原本上下倒置的图片进行自下而上渲染，使显示的图片是正的。
-            // https://blog.csdn.net/u013270341/article/details/74995530
-            imageTexture.RenderToViewportFlipY();
-        }
+        // May cause crush????
+        // TODO XINLI
+//        if(menuShowimg)
+//        {
+//            std::unique_lock<std::mutex> lock(gui_mutex);
+//            imageTexture.Upload(_img.data,GL_BGR,GL_UNSIGNED_BYTE);
+//            d_video.Activate();
+//            glColor3f(1.0,1.0,1.0);
+//            // 注意，这里由于Upload函数无法将cv::Mat格式的图片数据作为输入，因此使用 opencv 的data函数将Mat格式的数据变为uchar格式，但是opencv中Mat存储图片是自下而上的，单纯的渲染所渲染出来的图片是倒置的，因此需使用RenderToViewportFlipY（）函数进行渲染，将原本上下倒置的图片进行自下而上渲染，使显示的图片是正的。
+//            // https://blog.csdn.net/u013270341/article/details/74995530
+//            imageTexture.RenderToViewportFlipY();
+//        }
 
         pangolin::FinishFrame();
     }
