@@ -45,7 +45,8 @@ double last_imu_t = 0;
 bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs,
                     std::unordered_map< int, Eigen::Vector3d > &id_point_dataset,
 //                    std::vector<Eigen::Vector3d> &_Points,
-                    TriManager &gui_tri )
+                    TriManager &gui_tri,
+                    std::vector< double > &_times)
 {
     if(estimator.solver_flag == Estimator::INITIAL) return false;
 
@@ -68,6 +69,7 @@ bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs,
             Twc.block(0, 3, 3, 1) = Rwi * tic + twi;
 
             _Twcs.push_back(Twc);
+            _times.push_back( estimator.Headers[i].stamp.toSec() );
         }
 
 //        Eigen::Vector3d twi = estimator.Ps[WINDOW_SIZE];
@@ -420,12 +422,13 @@ void process()
             cv::cvtColor(_img, _img, CV_GRAY2RGB);
 //            _img = cv::Mat::zeros(480, 752, CV_8UC3);
             std::vector< Eigen::Matrix4d > _Twcs;
+            std::vector< double > _times;
 //            std::vector< Eigen::Vector3d > _Points;
             std::unordered_map< int, Eigen::Vector3d > id_point_dataset;
             TriManager gui_tri;
             double timestamp = img_msg->header.stamp.toSec();
-            if(GetcurguiData(_Twcs, id_point_dataset, gui_tri))
-                gui_ptr->update_data( _img, _Twcs, id_point_dataset, gui_tri, timestamp );
+            if(GetcurguiData(_Twcs, id_point_dataset, gui_tri, _times))
+                gui_ptr->update_data( _img, _Twcs, id_point_dataset, gui_tri, _times, timestamp );
 
             pubOdometry(estimator, header);
             pubKeyPoses(estimator, header);

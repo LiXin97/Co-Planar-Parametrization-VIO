@@ -217,6 +217,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         last_P0 = Ps[0];
     }
 }
+
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;

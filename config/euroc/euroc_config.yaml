@@ -63,13 +63,13 @@ gyr_w: 2.0e-6       # gyroscope bias random work noise standard deviation.     #
 g_norm: 9.81007     # gravity magnitude
 
 #loop closure parameters
-loop_closure: 1                    # start loop closure
+loop_closure: 0                    # start loop closure
 load_previous_pose_graph: 0        # load and reuse previous pose graph; load from 'pose_graph_save_path'
 fast_relocalization: 0             # useful in real-time and large project
 pose_graph_save_path: "/home/shaozu/output/pose_graph/" # save and load path
 
 #unsynchronization parameters
-estimate_td: 0                      # online estimate time offset between camera and imu
+estimate_td: 1                      # online estimate time offset between camera and imu
 td: 0.0                             # initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
 
 #rolling shutter parameters

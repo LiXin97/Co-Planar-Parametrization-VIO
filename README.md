@@ -11,6 +11,12 @@
 
 * *If you use Co-Planar-Parametrization-VIO for your academic research, please cite at least one of our related papers.*
 
+
+
+![run](./support_files/gui.png)
+![run](./support_files/gui.gif)
+
+
 [comment]: <> (* [bib]&#40;https://github.com/HKUST-Aerial-Robotics/VINS-Mono/blob/master/support_files/paper_bib.txt&#41;)
 
 

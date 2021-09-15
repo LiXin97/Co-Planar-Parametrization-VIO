@@ -47,6 +47,7 @@ void Gui::run()
     pangolin::Var<bool> menuShowCamera("menu.Show Camera",true,true);
     pangolin::Var<bool> menuShowPoint("menu.Show Point",true,true);
     pangolin::Var<bool> menuShowMesh("menu.Show Mesh",true,true);
+    pangolin::Var<bool> menuShowSingleMesh("menu.Show single Mesh",true,true);
 
 
     // Define Camera Render Object (for view / scene browsing)
@@ -78,6 +79,12 @@ void Gui::run()
 
 
     pangolin::GlTexture imageTexture(752, 480, GL_RGB,false,0,GL_BGR,GL_UNSIGNED_BYTE);
+
+
+    std::vector< std::vector<Eigen::Vector3d> > tris_3d_single_old;
+    std::vector< std::vector< Eigen::Vector2d >> tris_pixels_single_old;
+    cv::Mat single_img_old;
+
 
     while( !pangolin::ShouldQuit() )
     {
@@ -157,6 +164,12 @@ void Gui::run()
         std::vector< pangolin::OpenGlMatrix > Twcs_cur;
         std::unordered_map< int, Eigen::Vector3d > _points;
         std::vector< std::vector<Eigen::Vector3d> > tris_3d;
+        std::vector< std::pair< double, std::vector< Eigen::Vector2d > > > tris_pixels;
+        std::unordered_map< double, cv::Mat > imgs;
+
+        std::vector< std::vector<Eigen::Vector3d> > tris_3d_single;
+        std::vector< std::vector< Eigen::Vector2d >> tris_pixels_single;
+        cv::Mat single_img;
 
         {
             auto it_data = img_dataset.find( show_id );
@@ -180,6 +193,17 @@ void Gui::run()
             }
         }
         {
+            auto it_data = Timess_dataset.find(show_id);
+            if( it_data != Timess_dataset.end() )
+            {
+                for( auto time:it_data->second )
+                {
+                    imgs.insert( {time, img_dataset[ it_data->first ].clone()} );
+                }
+                single_img = img_dataset[ show_id ].clone();
+            }
+        }
+        {
             auto it_data = tris_dataset.find(show_id);
             auto it_point_set = points_dataset.find(show_id);
             if(it_data!=tris_dataset.end())
@@ -196,8 +220,52 @@ void Gui::run()
                     tri_3d.push_back(point_a_3d);
                     tri_3d.push_back(point_b_3d);
                     tri_3d.push_back(point_c_3d);
+
+                    auto time = tri.second.tri_per_frame.cbegin()->first;
+                    auto pixel_a = tri.second.tri_per_frame.cbegin()->second.pixel_a;
+                    auto pixel_b = tri.second.tri_per_frame.cbegin()->second.pixel_b;
+                    auto pixel_c = tri.second.tri_per_frame.cbegin()->second.pixel_c;
+
+                    std::vector< Eigen::Vector2d > pixels;
+                    pixels.push_back( pixel_a ); pixels.push_back( pixel_b ); pixels.push_back( pixel_c );
+                    tris_pixels.emplace_back(time, pixels );
                     tris_3d.push_back(tri_3d);
+
+                    {
+                        double last_frame_time = Timess_dataset[show_id].back();
+                        auto it_pixel_frame = tri.second.tri_per_frame.find( last_frame_time );
+                        if( it_pixel_frame != tri.second.tri_per_frame.end() )
+                        {
+                            auto pixel_a_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_a;
+                            auto pixel_b_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_b;
+                            auto pixel_c_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_c;
+
+                            std::vector< Eigen::Vector2d > pixels_single;
+                            pixels_single.push_back( pixel_a_single ); pixels_single.push_back( pixel_b_single ); pixels_single.push_back( pixel_c_single );
+                            tris_pixels_single.push_back( pixels_single );
+                            tris_3d_single.push_back(tri_3d);
+                        }
+                    }
+
                 }
+            }
+        }
+
+        {
+            if( tris_3d_single.empty() )
+            {
+                if( !tris_3d_single_old.empty() )
+                {
+                    tris_3d_single = tris_3d_single_old;
+                    tris_pixels_single = tris_pixels_single_old;
+                    single_img = single_img_old.clone();
+                }
+            }
+            else
+            {
+                tris_3d_single_old = tris_3d_single;
+                tris_pixels_single_old = tris_pixels_single;
+                single_img_old = single_img.clone();
             }
         }
 
@@ -208,7 +276,11 @@ void Gui::run()
             draw_points(_points);
 
         if(menuShowMesh)
-            draw_mesh(tris_3d);
+            draw_mesh(tris_3d, tris_pixels, imgs);
+
+        if(menuShowSingleMesh)
+            draw_single_mesh(tris_3d_single, tris_pixels_single, single_img);
+
 
         if(menuShowimg)
         {
@@ -241,33 +313,204 @@ Eigen::Vector4d pi_f_3p(Eigen::Vector3d x1, Eigen::Vector3d x2, Eigen::Vector3d 
     return pi;
 }
 
-void Gui::draw_mesh(const std::vector<std::vector<Eigen::Vector3d>> &tris_3d)
+GLuint load_texture(const cv::Mat &img)
+{
+    //OpenGL纹理用整型数表示
+    GLuint texture_ID;
+
+    int width = img.cols;
+    int height = img.rows;
+    //获取图像指针
+    int pixellength = width*height * 3;
+    auto pixels = new GLubyte[pixellength];
+    memcpy(pixels, img.data, pixellength * sizeof(char));
+//    imshow("OpenCV", I);
+
+    //将texture_ID设置为2D纹理信息
+    glGenTextures(1, &texture_ID);
+    glBindTexture(GL_TEXTURE_2D, texture_ID);
+    //纹理放大缩小使用线性插值   GL_NEAREST
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    //纹理水平竖直方向外扩使用重复贴图
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    //纹理水平竖直方向外扩使用边缘像素贴图(与重复贴图二选一)
+    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+
+    //将图像内存用作纹理信息
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, pixels);
+
+    free(pixels);
+    return texture_ID;
+}
+
+void Gui::draw_mesh(const std::vector<std::vector<Eigen::Vector3d>> &tris_3d,
+                    const std::vector< std::pair< double, std::vector< Eigen::Vector2d >>> &tris_pixels,
+                    const std::unordered_map< double, cv::Mat > &imgs)
 {
     if(tris_3d.empty())
         return;
 
-//    std::cout << tris_3d.size() << std::endl;
-    for(const auto&tri_3d:tris_3d)
+    std::map< int64_t, int > datasetid_id;
+    cv::Mat img;
+    int index_img = 0;
+    double img_col_single;
+    for(const auto&time_img:imgs)
     {
-        Eigen::Vector3d norm(0,0,1);
-        Eigen::Vector4d pi = pi_f_3p(tri_3d[0], tri_3d[1], tri_3d[2]);
-        Eigen::Vector3d n = pi.head(3);
-        double o = std::acos( n.dot(norm) );
-        o = o / 3.141592653 ;
-
-//        std::cout << o << std::endl;
-
-        glBegin(GL_TRIANGLES);
-        double color = 0.25 + 0.7 * o;
-        glColor3f(color, color, color);
-
-
-        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);
-        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);
-        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);
-
-        glEnd();
+        if( index_img == 0 )
+        {
+            img = time_img.second.clone();
+            img_col_single = img.cols;
+        }
+        else
+        {
+            cv::Mat img_2 = time_img.second.clone();
+            cv::hconcat(img,  img_2, img);
+        }
+        datasetid_id.insert( {time_img.first, index_img} );
+        index_img ++;
     }
+
+//    cv::imshow( "img", img );
+//    cv::waitKey(1);
+
+//    return;
+
+    GLuint image = load_texture(img);
+    double col = img.cols;
+    double row = img.rows;
+//
+    glColor3f(1.0f,1.0f,1.0f);
+    //显示纹理
+    glEnable(GL_TEXTURE_2D);    //允许使用纹理
+    glBindTexture(GL_TEXTURE_2D, image);    //选择纹理对象
+
+    for(int i=0;i<tris_3d.size(); ++i)
+//    for(const auto&tri_3d:tris_3d)
+    {
+        const auto &tri_3d = tris_3d[i];
+        const auto &tri_pixels = tris_pixels[i];
+
+
+
+        //原始完全填充四边形
+        glBegin(GL_TRIANGLES);    //设置为多边形纹理贴图方式并开始贴图
+        glTexCoord2f((tri_pixels.second[0][0] + datasetid_id[tri_pixels.first] * img_col_single
+        )/col, tri_pixels.second[0][1]/row);
+        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);    //纹理左上角对应窗口左上角
+
+        glTexCoord2f((tri_pixels.second[1][0] + datasetid_id[tri_pixels.first] * img_col_single
+        )/col, tri_pixels.second[1][1]/row);
+        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);    //纹理左下角对应窗口左下角
+
+
+        glTexCoord2f((tri_pixels.second[2][0] + datasetid_id[tri_pixels.first] * img_col_single
+                     )/col, tri_pixels.second[2][1]/row);
+        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);    //纹理右下角对应窗口右下角
+
+        glEnd();    //结束贴图*/
+
+
+
+
+
+//        Eigen::Vector3d norm(0,0,1);
+//        Eigen::Vector4d pi = pi_f_3p(tri_3d[0], tri_3d[1], tri_3d[2]);
+//        Eigen::Vector3d n = pi.head(3);
+//        double o = std::acos( n.dot(norm) );
+//        o = o / 3.141592653 ;
+//
+////        std::cout << o << std::endl;
+//
+//        glBegin(GL_TRIANGLES);
+//        double color = 0.25 + 0.7 * o;
+//        glColor3f(color, color, color);
+//
+//
+//        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);
+//        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);
+//        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);
+//
+//        glEnd();
+    }
+
+    glDisable(GL_TEXTURE_2D);    //禁止使用纹理
+    glDeleteTextures(1, &image);
+}
+
+void Gui::draw_single_mesh(const std::vector< std::vector< Eigen::Vector3d >> &tris_3d,
+                           const std::vector< std::vector< Eigen::Vector2d >> &tris_pixels,
+                           const cv::Mat &imgs)
+{
+    if(tris_3d.empty())
+    {
+//        std::cout << "tris_3d.empty()" << std::endl;
+        return;
+    }
+
+    cv::Mat img = imgs.clone();
+
+    GLuint image = load_texture(img);
+    double col = img.cols;
+    double row = img.rows;
+//
+    glColor3f(1.0f,1.0f,1.0f);
+    //显示纹理
+    glEnable(GL_TEXTURE_2D);    //允许使用纹理
+    glBindTexture(GL_TEXTURE_2D, image);    //选择纹理对象
+
+    for(int i=0;i<tris_3d.size(); ++i)
+//    for(const auto&tri_3d:tris_3d)
+    {
+        const auto &tri_3d = tris_3d[i];
+        const auto &tri_pixels = tris_pixels[i];
+
+
+
+        //原始完全填充四边形
+        glBegin(GL_TRIANGLES);    //设置为多边形纹理贴图方式并开始贴图
+        glTexCoord2f(tri_pixels[0][0]/col, tri_pixels[0][1]/row);
+        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);    //纹理左上角对应窗口左上角
+
+        glTexCoord2f(tri_pixels[1][0] /col, tri_pixels[1][1]/row);
+        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);    //纹理左下角对应窗口左下角
+
+
+        glTexCoord2f(tri_pixels[2][0] /col, tri_pixels[2][1]/row);
+        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);    //纹理右下角对应窗口右下角
+
+        glEnd();    //结束贴图*/
+
+
+
+
+
+//        Eigen::Vector3d norm(0,0,1);
+//        Eigen::Vector4d pi = pi_f_3p(tri_3d[0], tri_3d[1], tri_3d[2]);
+//        Eigen::Vector3d n = pi.head(3);
+//        double o = std::acos( n.dot(norm) );
+//        o = o / 3.141592653 ;
+//
+////        std::cout << o << std::endl;
+//
+//        glBegin(GL_TRIANGLES);
+//        double color = 0.25 + 0.7 * o;
+//        glColor3f(color, color, color);
+//
+//
+//        glVertex3f(tri_3d[0][0], tri_3d[0][1], tri_3d[0][2]);
+//        glVertex3f(tri_3d[1][0], tri_3d[1][1], tri_3d[1][2]);
+//        glVertex3f(tri_3d[2][0], tri_3d[2][1], tri_3d[2][2]);
+//
+//        glEnd();
+    }
+
+    glDisable(GL_TEXTURE_2D);    //禁止使用纹理
+    glDeleteTextures(1, &image);
 }
 
 void Gui::draw_points(const std::unordered_map< int, Eigen::Vector3d > &id_points)
@@ -383,7 +626,9 @@ inline pangolin::OpenGlMatrix GetOpenGlMatrix( const Eigen::Matrix4d &_Twc )
 void Gui::update_data(cv::Mat &_img, std::vector<Eigen::Matrix4d> &_Twcs,
                       std::unordered_map< int, Eigen::Vector3d > &id_point_datasets,
 //                      std::vector<Eigen::Vector3d> &_Points,
-                      TriManager &gui_tri, double _time)
+                      TriManager &gui_tri,
+                      std::vector< double > &_times,
+                      double _time)
 {
     std::unique_lock<std::mutex> lock(gui_mutex);
 
@@ -398,6 +643,8 @@ void Gui::update_data(cv::Mat &_img, std::vector<Eigen::Matrix4d> &_Twcs,
     Twcs_dataset.insert( {dataset_t, Twcs} );
 
     points_dataset.insert( {dataset_t, id_point_datasets} );
+
+    Timess_dataset.insert( {dataset_t, _times} );
 
     img_dataset.insert( {dataset_t, _img} );
 
