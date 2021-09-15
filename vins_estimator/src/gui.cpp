@@ -9,7 +9,7 @@
 Gui::Gui()
 {
     auto proc_func = [&]{run();};
-//    view_thread.reset( new std::thread(proc_func) );
+    view_thread.reset( new std::thread(proc_func) );
     show_id = 0;
     pause_status = false;
 }
@@ -171,82 +171,86 @@ void Gui::run()
         std::vector< std::vector< Eigen::Vector2d >> tris_pixels_single;
         cv::Mat single_img;
 
+
         {
-            auto it_data = img_dataset.find( show_id );
-            if( it_data != img_dataset.end() )
+            std::unique_lock<std::mutex> lock(gui_mutex);
             {
-                _img = it_data->second;
-            }
-        }
-        {
-            auto it_data = Twcs_dataset.find( show_id );
-            if( it_data != Twcs_dataset.end() )
-            {
-                Twcs_cur = it_data->second;
-            }
-        }
-        {
-            auto it_data = points_dataset.find( show_id );
-            if( it_data != points_dataset.end() )
-            {
-                _points = it_data->second;
-            }
-        }
-        {
-            auto it_data = Timess_dataset.find(show_id);
-            if( it_data != Timess_dataset.end() )
-            {
-                for( auto time:it_data->second )
+                auto it_data = img_dataset.find( show_id );
+                if( it_data != img_dataset.end() )
                 {
-                    imgs.insert( {time, img_dataset[ it_data->first ].clone()} );
+                    _img = it_data->second;
                 }
-                single_img = img_dataset[ show_id ].clone();
             }
-        }
-        {
-            auto it_data = tris_dataset.find(show_id);
-            auto it_point_set = points_dataset.find(show_id);
-            if(it_data!=tris_dataset.end())
             {
-                for( const auto & tri : it_data->second.tris)
+                auto it_data = Twcs_dataset.find( show_id );
+                if( it_data != Twcs_dataset.end() )
                 {
-                    std::vector< Eigen::Vector3d > tri_3d;
-                    auto feature_a = tri.second.feature_a;
-                    auto feature_b = tri.second.feature_b;
-                    auto feature_c = tri.second.feature_c;
-                    auto point_a_3d = it_point_set->second.find( feature_a )->second;
-                    auto point_b_3d = it_point_set->second.find( feature_b )->second;
-                    auto point_c_3d = it_point_set->second.find( feature_c )->second;
-                    tri_3d.push_back(point_a_3d);
-                    tri_3d.push_back(point_b_3d);
-                    tri_3d.push_back(point_c_3d);
-
-                    auto time = tri.second.tri_per_frame.cbegin()->first;
-                    auto pixel_a = tri.second.tri_per_frame.cbegin()->second.pixel_a;
-                    auto pixel_b = tri.second.tri_per_frame.cbegin()->second.pixel_b;
-                    auto pixel_c = tri.second.tri_per_frame.cbegin()->second.pixel_c;
-
-                    std::vector< Eigen::Vector2d > pixels;
-                    pixels.push_back( pixel_a ); pixels.push_back( pixel_b ); pixels.push_back( pixel_c );
-                    tris_pixels.emplace_back(time, pixels );
-                    tris_3d.push_back(tri_3d);
-
+                    Twcs_cur = it_data->second;
+                }
+            }
+            {
+                auto it_data = points_dataset.find( show_id );
+                if( it_data != points_dataset.end() )
+                {
+                    _points = it_data->second;
+                }
+            }
+            {
+                auto it_data = Timess_dataset.find(show_id);
+                if( it_data != Timess_dataset.end() )
+                {
+                    for( auto time:it_data->second )
                     {
-                        double last_frame_time = Timess_dataset[show_id].back();
-                        auto it_pixel_frame = tri.second.tri_per_frame.find( last_frame_time );
-                        if( it_pixel_frame != tri.second.tri_per_frame.end() )
-                        {
-                            auto pixel_a_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_a;
-                            auto pixel_b_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_b;
-                            auto pixel_c_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_c;
-
-                            std::vector< Eigen::Vector2d > pixels_single;
-                            pixels_single.push_back( pixel_a_single ); pixels_single.push_back( pixel_b_single ); pixels_single.push_back( pixel_c_single );
-                            tris_pixels_single.push_back( pixels_single );
-                            tris_3d_single.push_back(tri_3d);
-                        }
+                        imgs.insert( {time, img_dataset[ it_data->first ].clone()} );
                     }
+                    single_img = img_dataset[ show_id ].clone();
+                }
+            }
+            {
+                auto it_data = tris_dataset.find(show_id);
+                auto it_point_set = points_dataset.find(show_id);
+                if(it_data!=tris_dataset.end())
+                {
+                    for( const auto & tri : it_data->second.tris)
+                    {
+                        std::vector< Eigen::Vector3d > tri_3d;
+                        auto feature_a = tri.second.feature_a;
+                        auto feature_b = tri.second.feature_b;
+                        auto feature_c = tri.second.feature_c;
+                        auto point_a_3d = it_point_set->second.find( feature_a )->second;
+                        auto point_b_3d = it_point_set->second.find( feature_b )->second;
+                        auto point_c_3d = it_point_set->second.find( feature_c )->second;
+                        tri_3d.push_back(point_a_3d);
+                        tri_3d.push_back(point_b_3d);
+                        tri_3d.push_back(point_c_3d);
 
+                        auto time = tri.second.tri_per_frame.cbegin()->first;
+                        auto pixel_a = tri.second.tri_per_frame.cbegin()->second.pixel_a;
+                        auto pixel_b = tri.second.tri_per_frame.cbegin()->second.pixel_b;
+                        auto pixel_c = tri.second.tri_per_frame.cbegin()->second.pixel_c;
+
+                        std::vector< Eigen::Vector2d > pixels;
+                        pixels.push_back( pixel_a ); pixels.push_back( pixel_b ); pixels.push_back( pixel_c );
+                        tris_pixels.emplace_back(time, pixels );
+                        tris_3d.push_back(tri_3d);
+
+                        {
+                            double last_frame_time = Timess_dataset[show_id].back();
+                            auto it_pixel_frame = tri.second.tri_per_frame.find( last_frame_time );
+                            if( it_pixel_frame != tri.second.tri_per_frame.end() )
+                            {
+                                auto pixel_a_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_a;
+                                auto pixel_b_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_b;
+                                auto pixel_c_single = tri.second.tri_per_frame.at( last_frame_time ).pixel_c;
+
+                                std::vector< Eigen::Vector2d > pixels_single;
+                                pixels_single.push_back( pixel_a_single ); pixels_single.push_back( pixel_b_single ); pixels_single.push_back( pixel_c_single );
+                                tris_pixels_single.push_back( pixels_single );
+                                tris_3d_single.push_back(tri_3d);
+                            }
+                        }
+
+                    }
                 }
             }
         }
@@ -330,16 +334,16 @@ GLuint load_texture(const cv::Mat &img)
     glGenTextures(1, &texture_ID);
     glBindTexture(GL_TEXTURE_2D, texture_ID);
     //纹理放大缩小使用线性插值   GL_NEAREST
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     //纹理水平竖直方向外扩使用重复贴图
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+//    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     //纹理水平竖直方向外扩使用边缘像素贴图(与重复贴图二选一)
-    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
     //将图像内存用作纹理信息
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_BGR_EXT, GL_UNSIGNED_BYTE, pixels);
@@ -359,12 +363,14 @@ void Gui::draw_mesh(const std::vector<std::vector<Eigen::Vector3d>> &tris_3d,
     cv::Mat img;
     int index_img = 0;
     double img_col_single;
+    double img_row_single;
     for(const auto&time_img:imgs)
     {
         if( index_img == 0 )
         {
             img = time_img.second.clone();
             img_col_single = img.cols;
+            img_row_single = img.rows;
         }
         else
         {

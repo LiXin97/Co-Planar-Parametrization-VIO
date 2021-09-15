@@ -97,9 +97,9 @@ class FeatureManager
     void removeFront(int frame_count);
     void removeOutlier();
 
-//    std::map< int, FeaturePerId > id_feature_dataset;
+    std::unordered_map< int, FeaturePerId > id_feature_dataset;
 
-    std::list<FeaturePerId> feature;
+//    std::list<FeaturePerId> feature;
     int last_track_num;
 
   private:

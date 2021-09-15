@@ -82,8 +82,11 @@ bool GetcurguiData( std::vector<Eigen::Matrix4d> &_Twcs,
 
 
     std::set< int > f_id_dataset;
-    for (auto &it_per_id : estimator.f_manager.feature)
+    for(auto &id_feature: estimator.f_manager.id_feature_dataset)
     {
+        auto &it_per_id = id_feature.second;
+//    for (auto &it_per_id : estimator.f_manager.feature)
+//    {
         int used_num;
         used_num = it_per_id.feature_per_frame.size();
         if (!(used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))

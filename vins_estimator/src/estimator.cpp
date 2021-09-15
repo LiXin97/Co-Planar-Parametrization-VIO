@@ -254,8 +254,9 @@ bool Estimator::initialStructure()
     Vector3d T[frame_count + 1];
     map<int, Vector3d> sfm_tracked_points;
     vector<SFMFeature> sfm_f;
-    for (auto &it_per_id : f_manager.feature)
+    for(auto &id_feature:f_manager.id_feature_dataset)
     {
+        auto &it_per_id = id_feature.second;
         int imu_j = it_per_id.start_frame - 1;
         SFMFeature tmp_feature;
         tmp_feature.state = false;
@@ -416,8 +417,9 @@ bool Estimator::visualInitialAlign()
             Vs[kv] = frame_i->second.R * x.segment<3>(kv * 3);
         }
     }
-    for (auto &it_per_id : f_manager.feature)
+    for(auto &id_feature:f_manager.id_feature_dataset)
     {
+        auto &it_per_id = id_feature.second;
         it_per_id.used_num = it_per_id.feature_per_frame.size();
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
@@ -453,10 +455,10 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
         {
             double sum_parallax = 0;
             double average_parallax;
-            for (int j = 0; j < int(corres.size()); j++)
+            for (auto & corre : corres)
             {
-                Vector2d pts_0(corres[j].first(0), corres[j].first(1));
-                Vector2d pts_1(corres[j].second(0), corres[j].second(1));
+                Vector2d pts_0(corre.first(0), corre.first(1));
+                Vector2d pts_1(corre.second(0), corre.second(1));
                 double parallax = (pts_0 - pts_1).norm();
                 sum_parallax = sum_parallax + parallax;
 
@@ -487,27 +489,30 @@ void Estimator::triangle_img( double cur_frame_time )
     {
         int id = cur_frame.pids_[i];
         // 按照特征id找到对应的特征
-        auto it_feature = find_if(f_manager.feature.begin(), f_manager.feature.end(), [id](const FeaturePerId &it)
+        auto id_feature = f_manager.id_feature_dataset.find( id );
+//        auto it_feature = find_if(f_manager.feature.begin(), f_manager.feature.end(), [id](const FeaturePerId &it)
+//        {
+//            return it.feature_id == id;    // 在feature里找id号为feature_id的特征
+//        });
+        if(id_feature != f_manager.id_feature_dataset.end())
         {
-            return it.feature_id == id;    // 在feature里找id号为feature_id的特征
-        });
-        if(it_feature != f_manager.feature.end())
-            if(it_feature->feature_id == cur_frame.pids_[i])
+            auto &it_feature = id_feature->second;
+            if(it_feature.feature_id == cur_frame.pids_[i])
             {
                 int used_num;
-                used_num = it_feature->feature_per_frame.size();
+                used_num = it_feature.feature_per_frame.size();
 //                    if ((used_num >= 2 && it_feature->start_frame < WINDOW_SIZE - 2))
 //                    {
 //                        if (it_feature->start_frame <= WINDOW_SIZE * 3.0 / 4.0 && it_feature->solve_flag == 1)
 //                        {
-                if(it_feature->estimated_depth >0 /*&& it_feature->estimated_depth < 4.0*/ /*&& it_feature->good_2_mesh*/)
+                if(it_feature.estimated_depth >0 /*&& it_feature->estimated_depth < 4.0*/ /*&& it_feature->good_2_mesh*/)
                 {
-                    int imu_i = it_feature->start_frame, imu_j = imu_i - 1;
-                    Vector3d pts_i = it_feature->feature_per_frame[0].point * it_feature->estimated_depth;
+                    int imu_i = it_feature.start_frame, imu_j = imu_i - 1;
+                    Vector3d pts_i = it_feature.feature_per_frame[0].point * it_feature.estimated_depth;
                     Vector3d w_pts_i = Rs[imu_i] * (ric[0] * pts_i + tic[0]) + Ps[imu_i];
 
                     bool flag_ok = true;
-                    for (auto &it_per_frame : it_feature->feature_per_frame)
+                    for (auto &it_per_frame : it_feature.feature_per_frame)
                     {
                         imu_j++;
                         if (imu_i == imu_j)
@@ -545,6 +550,7 @@ void Estimator::triangle_img( double cur_frame_time )
 //                        }
 //                    }
             }
+        }
     }
 
     if(cur_ppixels.size() < 5) return;
@@ -904,8 +910,11 @@ void Estimator::optimization()
     }
     int f_m_cnt = 0;
     int feature_index = -1;
-    for (auto &it_per_id : f_manager.feature)
+    for(auto &id_feature: f_manager.id_feature_dataset)
     {
+        auto &it_per_id = id_feature.second;
+//    for (auto &it_per_id : f_manager.feature)
+//    {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
@@ -959,8 +968,9 @@ void Estimator::optimization()
         problem.AddParameterBlock(relo_Pose, SIZE_POSE, local_parameterization);
         int retrive_feature_index = 0;
         int feature_index = -1;
-        for (auto &it_per_id : f_manager.feature)
+        for(auto &id_feature:f_manager.id_feature_dataset)
         {
+            auto &it_per_id = id_feature.second;
             it_per_id.used_num = it_per_id.feature_per_frame.size();
             if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
                 continue;
@@ -1045,8 +1055,9 @@ void Estimator::optimization()
 
         {
             int feature_index = -1;
-            for (auto &it_per_id : f_manager.feature)
+            for(auto &id_feature:f_manager.id_feature_dataset)
             {
+                auto &it_per_id = id_feature.second;
                 it_per_id.used_num = it_per_id.feature_per_frame.size();
                 if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
                     continue;
